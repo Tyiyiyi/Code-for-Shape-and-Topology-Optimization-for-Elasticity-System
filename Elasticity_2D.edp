@@ -1,0 +1,351 @@
+load "medit"
+load "Curvature"
+
+/* Beam related parameters */
+real L=1.0;
+real a=0.1;
+real E=2.0e11;
+real nu=0.3;
+real q1D=4.0e5;
+real q=q1D/(2*a);
+
+/* scale parameters */
+real scaleE=1.0e5;
+real scaleU=1.0e2;
+real Ec=E/(scaleE*scaleU);
+real qc=q/scaleE;
+real lambdac=nu*Ec/((1+nu)*(1-2*nu));
+real muc=0.5*Ec/(1+nu);
+real l2mc=lambdac+2*muc;
+
+/* Build Mesh */
+// Labels: Dirichlet 1, Free0 4, Free 3, Applied 2
+int  res1=200, res2=40;
+border lwall(t=a,-a){x=0.0;y=t;label=1;};
+border upper(t=L,0.0){x=t;y=a; label=2;};
+border rwall(t=-a,a){x=L;y=t; label=3;};
+// border bwall(t=0.0,L){x=t;y=-a;label=4;};
+border bwall(t=0.0,L) {x = t; y = 0.015*(sin(pi*2*t))-a; label=4; };
+mesh Beam=buildmesh( lwall(res2)+bwall(res1)+rwall(res2)+upper(res1) );
+mesh DeformedBeam,DeformedBeam1,DeformedBeam2;
+plot(Beam,cmm="Original beam",wait=true);
+
+/* definite the finite element space */
+fespace Displacement(Beam,P2); 
+Displacement u1, p1, u1r, phi1;
+Displacement u2, p2, u2r, phi2;
+Displacement dFrho, du, Frho, g1, g2, g3, uold, normaldu, Divk, Nx, Ny;
+
+/* Find the boundary cell with label 2 */
+int Nb1 = Beam.nbe;
+int km = 0;
+for (int k = 0; k < Nb1; k++)
+{
+  if (Beam.be(k).label == 4 )
+  {  
+    km=km+1;    
+  }
+}
+cout<<"km = "<<km<<endl;
+int n, m;
+n = Displacement.ndof;  
+m = km ; 
+
+/* Find all two corresponding vertices on each unit and store them in vector jj */
+int[int] jj(m+1);
+int[int] jjm;
+jj = 0;
+int j1,j2;
+int k1 = 0, k2 = 1;
+for (int k=0 ; k < Nb1; k++){
+    if(Beam.be(k).label == 4){
+        j1=Beam.be(k)[0];
+        // cout<<"j1 = "<<j1<<endl;
+        j2=Beam.be(k)[1];
+        // cout<<"j2 = "<<j2<<endl;
+        jj[k1]=j1;
+        jj[k2]=j2;   
+        k1=k1+1;    
+        k2=k2+1;   
+    }
+}
+ofstream output16("Point_Label_0.txt");
+for (int i = 0; i < jj.n; ++i) {
+        output16 << jj[i] << endl;
+}
+
+// definite the Projection Matrix C (mm,n): 
+// mm: the index of all vertices with label 2
+// n: the degree of freedom of Beam
+int mm;
+mm = jj.n;
+cout<<"mm = "<<mm<<endl;
+real [int] g1p(mm), g2p(mm), g3p(mm);
+real [int,int] C(mm,n);
+C = 0;
+int te;
+for (int i=0;i<mm;i++)  
+{
+  te=jj[i]; 
+  C(i,te)=1;
+}
+ofstream output3("Matrix_C.txt");
+output3<<" Matrix C "<<C<<endl;
+
+/* Some Macro */
+real sq2=sqrt(2.0);  
+macro strain(u1,u2) [dx(u1), dy(u2), ( dx(u2)+dy(u1) )/sq2]  //strain vector
+macro stress(u1,u2) [l2mc*dx(u1)+lambdac*dy(u2),
+                     lambdac*dx(u1)+l2mc*dy(u2),
+                     2*muc*( dx(u2)+dy(u1) )/sq2]            //stress vector
+macro energy(u1,u2,phi1,phi2)
+           ( stress(u1,u2)'*strain(phi1,phi2) )              //bilinear form
+
+/* The State problem */
+problem Elasticity(u1,u2,phi1,phi2)
+      = int2d(Beam)( energy(u1,u2,phi1,phi2) )
+       +int1d(Beam,2)(qc*phi2)
+       +on(1,u1=0,u2=0);
+
+/* Definite adjoint equation */
+problem Adjoint(p1,p2,phi1,phi2)
+    = int2d(Beam) (energy(p1,p2,phi1,phi2))
+     -int1d(Beam,2) (dFrho*energy(u1r,u2r,phi1,phi2))
+     +on(1,p1=0,p2=0);            
+
+/* Compute the elasticity problem and plot([ux,uy]) */
+Elasticity;
+plot([u1,u2],cmm="Displacement as vector field",value=1,wait=true);     
+
+/* Actual displacement field */
+u1r=u1/scaleU;  u2r=u2/scaleU;
+// DeformedBeam1=movemesh(Beam,[x+u1r,y+u2r]);   //beam after loading real
+// plot(DeformedBeam1,cmm="Deformed beam real displacement", wait=true);
+
+/* Save ux and uy to the file */
+ofstream output1("verctor_ux.txt");
+for (int i = 0; i < u1r[].n; ++i) {
+        output1 << u1r[][i] << endl;
+}
+ofstream output2("verctor_uy.txt");
+for (int i = 0; i < u2r[].n; ++i) {
+        output2 << u2r[][i] << endl;
+}
+
+real [int] uyy(mm);
+uyy = 0;
+uyy = C*u2[];
+
+ofstream output12("verctor_uyy.txt");
+for (int i = 0; i < uyy.n; ++i) {
+        output12 << uyy[i] << endl;
+}
+
+/* Move mesh by dispacement */
+// DeformedBeam=movemesh(Beam,[x+u1,y+u2]);                              
+// plot(DeformedBeam,cmm="Deformed beam scaled displacement", wait=true);
+
+
+/* Take out the value point of du on the boundary \Gamma_v 
+   and store it in the vector dug */
+du = energy(u1r,u2r,u1r,u2r);     
+real [int] dug(mm);
+dug = 0;
+dug = C*du[];
+int et = mm/2;
+real lambda0;
+lambda0 =dug[et];
+// lambda0 = 0;
+
+/* Save the dug to the file */
+ofstream output6("verctor_dug.txt");
+for (int i = 0; i < dug.n; ++i) {
+        output6 << dug[i] << endl;
+}
+ofstream output8("verctor_du.txt");
+for (int i = 0; i < du[].n; ++i) {
+        output8 << du[][i] << endl;
+}
+
+/* definite function F and its derivative */
+Frho = (du - lambda0)^2;
+dFrho = 2*(du-lambda0);
+
+Adjoint;
+plot([p1,p2],cmm="The adjoint state as vector field",value=1,wait=true);
+
+/* Save the px and py to the file */
+ofstream output4("verctor_px.txt");
+for (int i = 0; i < p1[].n; ++i) {
+        output4 << p1[][i] << endl;
+}
+ofstream output5("verctor_py.txt");
+for (int i = 0; i < p2[].n; ++i) {
+        output5 << p2[][i] << endl;
+}
+
+real [int] pyy(mm);
+pyy = 0;
+pyy = C*p2[];
+
+ofstream output13("verctor_pyy.txt");
+for (int i = 0; i < pyy.n; ++i) {
+        output13 << pyy[i] << endl;
+}
+
+// //////////////////////////////////////////////////////////////////
+// // Calculate the value of the first part g1 at Gamma_v
+// //////////////////////////////////////////////////////////////////
+g1 = energy(u1r,u2r,p1,p2);
+g1p = C*g1[];
+ofstream output9("verctor_g1.txt");
+for (int i = 0; i < g1[].n; ++i) {
+        output9 << g1[][i] << endl;
+}
+ofstream output7("verctor_g1p.txt");
+for (int i = 0; i < g1p.n; ++i) {
+        output7 << g1p[i] << endl;
+}
+
+// //////////////////////////////////////////////////////////////////
+// // Calculate the value of the second part g2 at Gamma_v
+// //////////////////////////////////////////////////////////////////
+
+// calculate the normal vector of Gamma_v
+varf vqnuNormal1(Nx,unused) = on(4,Nx=N.x);//  to def the  interpolation all normal..
+varf vqnuNormal2(Ny,unused) = on(4,Ny=N.y);//  to def the  interpolation all normal..
+Nx[]= vqnuNormal1(0,Displacement,tgv=1); // to get the normal value...
+Ny[]= vqnuNormal2(0,Displacement,tgv=1); // to get the normal value...
+plot([Nx,Ny]);
+// cout<<"Nx = "<<Nx[]<<endl;
+// du = energy(u1,u2,u1,u2); 
+// Frho = (du - lambda0)^2;
+// dFrho = 2*(du-lambda0);
+g2 = dFrho*(dx(du)*Nx+dy(du)*Ny);
+// g2p = C*g2[];
+real tyr;
+real [int] g23p(mm);
+int kio = 0;
+for(int i=0;i<g2[].n;++i){
+        for(int ty=0;ty<jj.n;++ty){
+                if(i==jj[ty]){
+                        tyr = g2[][i];
+                        g23p[kio]=tyr;
+                        kio = kio+1;
+                }
+        }
+}
+ofstream output24("verctor_g23p.txt");
+for (int i = 0; i < g23p.n; ++i) {
+        output24 << g23p[i] << endl;
+}
+
+// real [int] g22p(2*mm-1);
+// real teer;
+// int kjg=0;
+// for(int i=0;i<g2[].n;++i){
+//         if(g2[][i]!=0){
+//                 teer = g2[][i];
+//                 g22p[kjg] = teer;
+//                 kjg=kjg+1;
+//         }
+// }
+// cout<<"g22p = "<<g22p<<endl;
+
+ofstream output14("verctor_g2.txt");
+for (int i = 0; i < g2[].n; ++i) {
+        output14 << g2[][i] << endl;
+}
+
+// ofstream output25("verctor_g22p.txt");
+// for (int i = 0; i < g22p.n; ++i) {
+//         output25 << g22p[i] << endl;
+// }
+
+//////////////////////////////////////////////////////////////////
+// Calculate the value of the third part g3 at Gamma_v
+//////////////////////////////////////////////////////////////////
+// calculate the curvature of Gamma_v
+Divk[]=curvature(Beam,4);
+cout<<"Divk = "<<Divk[]<<endl;
+real [int] divk(mm);
+divk = C*Divk[];
+ofstream output10("verctor_divk.txt");
+for (int i = 0; i < divk.n; ++i) {
+        output10 << divk[i] << endl;
+}
+
+g3 = Divk*Frho;
+cout<<"Divk = "<<Divk[].n<<endl;
+cout<<"Frho = "<<Frho[].n<<endl;
+cout<<"g3 = "<<g3[].n<<endl;
+ofstream output29("verctor_g3.txt");
+for (int i = 0; i < g3[].n; ++i) {
+        output29 << g3[][i] << endl;
+}
+
+g3p = C*g3[];
+ofstream output19("verctor_g3p.txt");
+for (int i = 0; i < g3p.n; ++i) {
+        output19 << g3p[i] << endl;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// u1r=u1/scaleU;  u2r=u2/scaleU;
+// DeformedBeam1=movemesh(Beam,[x+u1r,y+u2r]);                           //beam after loading real
+// plot(DeformedBeam1,cmm="Deformed beam real displacement", wait=true);
+
+// cout << "============="<< endl << "Real end displacement = " << u2r(L,a) << endl << "=============" << endl;
+// u1D=-1.5*(q1D/E)*(0.5*L/a)^4;
+// u1Dfull=(q1D/(32*E*a^4))*( -(L-x)^4-4*L^3*x+L^4 );
+// cout << "============="<< endl << "End displacement from 1D theory = " << u1D << endl << "=============" << endl;
+// relerr=100*abs(u1D-u2r(L,a))/abs(u2r(L,a));
+// cout << "============="<< endl << "Relative difference of 1D theory and FEM = " << relerr << " %" <<endl << "=============" << endl;
+
+// elen=0.5*(scaleE/(scaleU^2*a^2))*energy(u1,u2,u1,u2);
+// plot(elen,cmm="Energy density from FEM (scaled)", wait=true);
+// elen1D=18*q1D^2*((L-x)/(2*a)^2)^4*y^2/(E);
+
+// plot(elen1D,cmm="Energy density from 1D theory (scaled)", wait=true);
+// endiff=elen1D-elen;
+// plot(endiff,cmm="Energy densities compared (scaled)", wait=true);
+// cout << "============="<< endl << "elen(0.5,-a) =    " << elen(0.5,-a) << endl << "=============" << endl;
+// cout << "============="<< endl << "elen1D(0.5,-a) =  " << elen1D(0.5,-a) << endl << "=============" << endl;
+
+// {ofstream file("energies.txt");
+//   file << res1 << "   " << 2 << endl;
+// for (int i = 0; i < res1; i++)
+//   { file << elen((i-1)*deltax,-a) << "   " << elen1D((i-1)*deltax,-a) << endl;
+//   };
+// }
+
+// {ofstream file("displacements.txt");
+//   file << res1 << "   " << 2 << endl;
+// for (int i = 0; i < res1; i++)
+//   { file << u2r((i-1)*deltax,a) << "   " << u1Dfull((i-1)*deltax,a) << endl;
+//   };
+// }
+

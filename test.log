@@ -1,0 +1,544 @@
+-- FreeFem++ v4.11 (Thu, Apr 07, 2022  2:25:37 PM - git v4.11)
+   file : C:\Users\25821\Desktop\Yixin_Tan\Code\Project\test.edp
+ Load: lg_fem lg_mesh lg_mesh3 eigenvalue
+    1 : // Build mesh : Dirichlet: 1  Free1: 0  Applied: 2  Free2: 3
+    2 : int Num=10;
+    3 : border aa1(t=0.0, 2.0) {x=t; y=0.2*(sin(pi*(t-1))); label=0; }; //bottom  0
+    4 : border bb1(t=0.0, 1.0) {x=2.0; y=t; label=3; }; //right  3
+    5 : border cc1(t=2.0, 0.0) {x=t; y=1.0; label=2; }; //top  2
+    6 : border dd1(t=1.0, 0.0) {x=0.0; y=t; label=1; }; //left  1
+    7 : mesh Th = buildmesh(aa1(10*Num)+bb1(5*Num)+cc1(10*Num)+dd1(5*Num));
+    8 : meshL Thl=buildmeshL(aa1(10*Num));   // Thl represent the bottom boundary
+    9 : // Definite the finite element space
+   10 : fespace Vh(Th,P1);
+   11 : Vh ux,uy,vx,vy,px,py,temp,ttt,tempux,tempuy,temppx,temppy,g1,g2,g3,du,Frho,Nw1,Nw2,Diiv,rho;
+   12 : int m,mm;
+   13 : m=Vh.ndof;  // Degrees of freedom in Vh space
+   14 : mm=Thl.nv;  // Numbers of vertices on Thl
+   15 : int Nb1 = Th.nbe; // The number of cells in Th
+   16 : plot(Th,wait=1);
+   17 :
+   18 : // Initial of the finite function
+   19 : temp = 0;
+   20 : ttt = 0;
+   21 : tempux = 0;
+   22 : tempuy = 0;
+   23 : temppx = 0;
+   24 : temppy = 0;
+   25 : Nw1 = 0;
+   26 : Nw2 = 0;
+   27 : Diiv = 0;
+   28 :
+   29 : // Grid point parameters
+   30 : real eps = 1e-7;
+   31 : real [int,int] C(mm,m);
+   32 : C=0;
+   33 : // mm-dimensional vector with the same number of vertices as the bottom boundary
+   34 : real [int] gg(mm),dug(mm),N1(mm),N2(mm),Dii(mm),gg1(mm),gg2(mm),gg3(mm);
+   35 :
+   36 : // Initial of the vertor
+   37 : gg = 0;
+   38 : dug = 0;
+   39 : N1 = 0;
+   40 : N2 = 0;
+   41 : Dii = 0;
+   42 : gg1 = 0;
+   43 : gg2 = 0;
+   44 : gg3 = 0;
+   45 :
+   46 : int j=0,jj=0; // Matrix element position pointer
+   47 : for (int k = 0; k < Nb1; k++)
+   48 : {
+   49 :   if (Th.be(k).label == 0 )
+   50 :   {
+   51 :     j=Th.be(k)[1];
+   52 :     cout<<"j: "<<j<<endl;
+   53 :     // Select the boundary node number (including a cross node on the right boundary)
+   54 :     temp[][j]=1;
+   55 :     jj=Th.be(k)[0];
+   56 :     cout<<"jj: "<<jj<<endl;
+   57 :     // Select the boundary node number (including a cross node on the left boundary)
+   58 :     temp[][jj]=1;
+   59 :   }
+   60 : }
+   61 : ttt=temp;
+   62 :
+   63 : // parameters
+   64 : real E = 2.0*10^11;
+   65 : real nu = 0.3;
+   66 : real mu = E/(2*(1+nu));
+   67 : real lambda = E*nu/((1+nu)*(1-2*nu));
+   68 : real tx = 0;
+   69 : real ty = -1.0;
+   70 : real lambda0;
+   71 : real s1,s2,s3,s4,s5,s6,s7,s8,s9; //Intermediate variables
+   72 :
+   73 : // macro
+   74 : real sqrt2 = sqrt(2.);
+   75 : macro epsilon(ux,uy) [dx(ux), dy(uy), (dx(ux)+dy(uy))/sqrt2]  )  // EOM
+   76 : macro div(ux,uy) [dx(ux)+dy(uy)]  )  // EOM
+   77 :
+   78 : // Definite state equation
+   79 : solve State([ux,uy],[vx,vy])
+   80 :     = -int2d(Th) (lambda*div(vx,vy)   [dx(vx)+dy(vy)] *div(ux,uy)   [dx(ux)+dy(uy)] +2.0*mu*(epsilon(vx,vy)
+[dx(vx), dy(vy), (dx(vx)+dy(vy))/sqrt2] '*epsilon(ux,uy)     [dx(ux), dy(uy), (dx(ux)+dy(uy))/sqrt2] ))
+   81 :      +int1d(Th,2) (tx*vx+ty*vy)
+   82 :      +on(1,ux=0,uy=0);
+   83 :
+   84 : // Definite adjoint equation
+   85 : rho = (lambda*div(ux,uy)   [dx(ux)+dy(uy)] *div(ux,uy)   [dx(ux)+dy(uy)] +2.0*mu*(epsilon(ux,uy)     [dx(ux), dy(uy), (dx(ux)+dy(uy))/sqrt2] '*epsilon(ux,uy)     [dx(ux), dy(uy), (dx(ux)+dy(uy))/sqrt2] )-lambda0);
+   86 : solve Adjoint([px,py],[vx,vy])
+   87 :     = -int2d(Th) (lambda*div(vx,vy)   [dx(vx)+dy(vy)] *div(px,py)   [dx(px)+dy(py)] +2.0*mu*(epsilon(vx,vy)
+[dx(vx), dy(vy), (dx(vx)+dy(vy))/sqrt2] '*epsilon(px,py)     [dx(px), dy(py), (dx(px)+dy(py))/sqrt2] ))
+   88 :      -int1d(Th,0) (2*rho*(lambda*div(vx,vy)   [dx(vx)+dy(vy)] *div(ux,uy)   [dx(ux)+dy(uy)] +2.0*mu*(epsilon(vx,vy)     [dx(vx), dy(vy), (dx(vx)+dy(vy))/sqrt2] '*epsilon(ux,uy)     [dx(ux), dy(uy), (dx(ux)+dy(uy))/sqrt2] )))
+   89 :      +on(1,px=0,py=0);
+   90 :
+   91 : // Only take out the values ​​on the boundary \Gamma_v and set other values ​​to 0                       92 : for(int uu = 0;uu < m;uu++)
+   93 : {
+   94 :     if(temp[][uu] == 1)
+   95 :     {s1=ux[][uu];
+   96 :      s2=uy[][uu];
+   97 :      s3=px[][uu];
+   98 :      s4=py[][uu];
+   99 :      tempux[][uu]=s1;
+  100 :      tempuy[][uu]=s2;
+  101 :      temppx[][uu]=s3;
+  102 :      temppy[][uu]=s4;}
+  103 : }
+  104 :
+  105 : // Save the value of ux only on the boundary \Gamma_v, and the rest are 0
+  106 : ofstream output1("verctor_ux.txt");
+  107 : for (int i = 0; i < tempux[].n; ++i) {
+  108 :         output1 << tempux[][i] << endl;
+  109 : }
+  110 :
+  111 : ofstream output2("verctor_uy.txt");
+  112 : for (int i = 0; i < tempuy[].n; ++i) {
+  113 :         output2 << tempuy[][i] << endl;
+  114 : }
+  115 :
+  116 : ofstream output3("verctor_px.txt");
+  117 : for (int i = 0; i < temppx[].n; ++i) {
+  118 :         output3 << temppx[][i] << endl;
+  119 : }
+  120 :
+  121 : ofstream output4("verctor_py.txt");
+  122 : for (int i = 0; i < temppy[].n; ++i) {
+  123 :         output4 << temppy[][i] << endl;
+  124 : }
+  125 :
+  126 : //////////////////////////////////////////////////////////////////////////
+  127 : // Calculate the value of the first part at Gamma_v
+  128 : //////////////////////////////////////////////////////////////////////////
+  129 : g1 = lambda*div(tempux,tempuy)   [dx(tempux)+dy(tempuy)] *div(temppx,temppy)   [dx(temppx)+dy(temppy)] +2.0*mu*(epsilon(tempux,tempuy)     [dx(tempux), dy(tempuy), (dx(tempux)+dy(tempuy))/sqrt2] '*epsilon(temppx,temppy)     [dx(temppx), dy(temppy), (dx(temppx)+dy(temppy))/sqrt2] );
+  130 : // for(int oo=0;oo<m;oo++)
+  131 : // {
+  132 : //      cout<<"g1[][oo]= "<<g1[][oo]<<endl;
+  133 : //      // g1[][oo]= lambda*div(tempux[][oo],tempuy[][oo])*div(temppx[][oo],temppy[][oo])+2.0*mu*(epsilon(tempux[][oo],tempuy[][oo])'*epsilon(temppx[][oo],temppy[][oo]));
+  134 : // }
+  135 : int rrt1=0;
+  136 : for(int po=0;po<m;po++)
+  137 : {
+  138 :   if(g1[][po]!=0)
+  139 :   {
+  140 :     rrt1 = rrt1+1;
+  141 :   }
+  142 : }
+  143 : cout<<" rrt1= "<<rrt1<<endl;
+  144 :
+  145 : // Take out the value point of g1 on the boundary \Gamma_v and store it in the vector gg
+  146 : temp=ttt;
+  147 : int iii=0;
+  148 : for(int uu = 0;uu < m;uu++)
+  149 : {
+  150 :     if(temp[][uu] == 1)
+  151 :     { s5=g1[][uu];
+  152 :       gg[iii]=s5;
+  153 :       iii=iii+1;}
+  154 : }
+  155 :
+  156 : // Save the value of g1 in the space Vh
+  157 : ofstream output5("verctor_g1.txt");
+  158 : for (int i = 0; i < g1[].n; ++i) {
+  159 :         output5 << g1[][i] << endl;
+  160 : }
+  161 :
+  162 : //////////////////////////////////////////////////////////////////////////
+  163 : // Calculate the value of the second part at Gamma_v
+  164 : //////////////////////////////////////////////////////////////////////////
+  165 : du = lambda*div(tempux,tempuy)   [dx(tempux)+dy(tempuy)] *div(tempux,tempuy)   [dx(tempux)+dy(tempuy)] +2.0*mu*(epsilon(tempux,tempuy)     [dx(tempux), dy(tempuy), (dx(tempux)+dy(tempuy))/sqrt2] '*epsilon(tempux,tempuy)     [dx(tempux), dy(tempuy), (dx(tempux)+dy(tempuy))/sqrt2] );
+  166 :
+  167 : // Take out the value point of du on the boundary \Gamma_v and store it in the vector dug
+  168 : temp=ttt;
+  169 : int ii=0;
+  170 : for(int uu = 0;uu < m;uu++)
+  171 : {
+  172 :     if(temp[][uu] == 1)
+  173 :     { s6=du[][uu];
+  174 :       dug[ii]=s6;
+  175 :       ii=ii+1;}
+  176 : }
+  177 : // Save the value of dug
+  178 : ofstream output6("verctor_dug.txt");
+  179 : for (int i = 0; i < dug.n; ++i) {
+  180 :         output6 << dug[i] << endl;
+  181 : }
+  182 : lambda0 =dug[50];
+  183 : Frho = (du - lambda0)^2;
+  184 : // cout<<"Frho= "<<Frho[]<<endl;
+  185 :
+  186 : // Calculate the normal vector of the curve \Gamma_v and save it to the vector
+  187 : int jk=0;
+  188 : for(real kt=0.0;kt<=2;kt=kt+0.02)
+  189 : {
+  190 :     N1[jk]=-0.2*pi*cos(pi*(kt-1));
+  191 :     N2[jk]=1;
+  192 :     jk=jk+1;
+  193 : }
+  194 : // Save the value of  the normal vector N1 and N2
+  195 : ofstream output7("verctor_N1.txt");
+  196 : for (int i = 0; i < N1.n; ++i) {
+  197 :         output7 << N1[i] << endl;
+  198 : }
+  199 :
+  200 : ofstream output8("verctor_N2.txt");
+  201 : for (int i = 0; i < N2.n; ++i) {
+  202 :         output8 << N2[i] << endl;
+  203 : }
+  204 :
+  205 : // Extend the normal vector to the entire space dimension vector, and set the value to 0 at non-\Gamma_v locations
+  206 : temp = ttt;
+  207 : int ik1=0,ik2=0;
+  208 : for(int uu = 0;uu < m;uu++)
+  209 : {
+  210 :     if(temp[][uu] == 1)
+  211 :     { s7=N1[ik1];
+  212 :       s8=N2[ik2];
+  213 :       Nw1[][uu]=s7;
+  214 :       Nw2[][uu]=s8;
+  215 :       ik1=ik1+1;}
+  216 : }
+  217 :
+  218 : // Save the value of the normal vector Nw1 and Nw2
+  219 : ofstream output9("verctor_Nw1.txt");
+  220 : for (int i = 0; i < Nw1[].n; ++i) {
+  221 :         output9 << Nw1[][i] << endl;
+  222 : }
+  223 :
+  224 : ofstream output10("verctor_Nw2.txt");
+  225 : for (int i = 0; i < Nw2[].n; ++i) {
+  226 :         output10 << Nw2[][i] << endl;
+  227 : }
+  228 :
+  229 : // Calculate the g2 and Save the value of g2 in the space Vh
+  230 : g2 = dx(Frho)*Nw1+dy(Frho)*Nw2;
+  231 : ofstream output11("verctor_g2.txt");
+  232 : for (int i = 0; i < g2[].n; ++i) {
+  233 :         output11 << g2[][i] << endl;
+  234 : }
+  235 :
+  236 : int rrt2=0;
+  237 : for(int po=0;po<m;po++)
+  238 : {
+  239 :   if(g2[][po]!=0)
+  240 :   {
+  241 :     rrt2 = rrt2+1;
+  242 :   }
+  243 : }
+  244 : cout<<" rrt2= "<<rrt2<<endl;
+  245 :
+  246 : //////////////////////////////////////////////////////////////////////////
+  247 : // Calculate the value of the second part at Gamma_v
+  248 : //////////////////////////////////////////////////////////////////////////
+  249 : // Calculate the curvature Dii of curve \Gamma_v and save it
+  250 : int jkk=0;
+  251 : for(real kt=0.0;kt<=2;kt=kt+0.02)
+  252 : {
+  253 :     Dii[jkk]=0.2*pi*pi*sin(pi*(kt-1));
+  254 :     jkk=jkk+1;
+  255 : }
+  256 : cout<<"jkk= "<<jkk<<endl;
+  257 : ofstream output12("verctor_Dii.txt");
+  258 : for (int i = 0; i < Dii.n; ++i) {
+  259 :         output12 << Dii[i] << endl;
+  260 : }
+  261 :
+  262 : // Extend the curvature to the entire space dimension vector, and set the value to 0 at non-\Gamma_v locations
+  263 : temp = ttt;
+  264 : int ik3=0;
+  265 : for(int uu = 0;uu < m;uu++)
+  266 : {
+  267 :     if(temp[][uu] == 1)
+  268 :     { s9=Dii[ik3];
+  269 :       Diiv[][uu]=s9;
+  270 :       ik3=ik3+1;}
+  271 : }
+  272 : ofstream output13("verctor_kappa.txt");
+  273 : for (int i = 0; i < Diiv[].n; ++i) {
+  274 :         output13 << Diiv[][i] << endl;
+  275 : }
+  276 :
+  277 : // Calculate the g3 and Save the value of g3 in the space Vh
+  278 : g3 = Diiv*Frho;
+  279 : ofstream output14("verctor_g3.txt");
+  280 : for (int i = 0; i < g3[].n; ++i) {
+  281 :         output14 << g3[][i] << endl;
+  282 : }
+  283 :
+  284 : int rrt3=0;
+  285 : for(int po=0;po<m;po++)
+  286 : {
+  287 :   if(g3[][po]!=0)
+  288 :   {
+  289 :     rrt3 = rrt3+1;
+  290 :   }
+  291 : }
+  292 : cout<<" rrt3= "<<rrt3<<endl;
+  293 :
+  294 : // Turn g1, g2 and g3 into mm vectors (only take the value on Gamma_v)
+  295 : temp=ttt;
+  296 : int is1=0;
+  297 : real w1,w2,w3;
+  298 : for(int uu = 0;uu < m;uu++)
+  299 : {
+  300 :     if(temp[][uu] == 1)
+  301 :     { w1=g1[][uu];
+  302 :       w2=g2[][uu];
+  303 :       w3=g3[][uu];
+  304 :       gg1[is1]=w1;
+  305 :       gg2[is1]=w2;
+  306 :       gg3[is1]=w3;
+  307 :       is1=is1+1;}
+  308 : }
+  309 : ofstream output15("verctor_gg1.txt");
+  310 : for (int i = 0; i < gg1.n; ++i) {
+  311 :         output15 << gg1[i] << endl;
+  312 : }
+  313 :
+  314 : ofstream output16("verctor_gg2.txt");
+  315 : for (int i = 0; i < gg2.n; ++i) {
+  316 :         output16 << gg2[i] << endl;
+  317 : }
+  318 :
+  319 : ofstream output17("verctor_gg3.txt");
+  320 : for (int i = 0; i < gg3.n; ++i) {
+  321 :         output17 << gg3[i] << endl;
+  322 :     }
+  323 :  sizestack + 1024 =22292  ( 21268 )
+ 
+  --  mesh:  Nb of Triangles =  10476, Nb of Vertices 5389
+j: 82
+jj: 80
+j: 130
+jj: 82
+j: 183
+jj: 130
+j: 242
+jj: 183
+j: 253
+jj: 242
+j: 314
+jj: 253
+j: 378
+jj: 314
+j: 379
+jj: 378
+j: 442
+jj: 379
+j: 506
+jj: 442
+j: 533
+jj: 506
+j: 534
+jj: 533
+j: 601
+jj: 534
+j: 673
+jj: 601
+j: 744
+jj: 673
+j: 817
+jj: 744
+j: 887
+jj: 817
+j: 956
+jj: 887
+j: 1030
+jj: 956
+j: 1105
+jj: 1030
+j: 1107
+jj: 1105
+j: 1179
+jj: 1107
+j: 1240
+jj: 1179
+j: 1317
+jj: 1240
+j: 1393
+jj: 1317
+j: 1470
+jj: 1393
+j: 1544
+jj: 1470
+j: 1616
+jj: 1544
+j: 1687
+jj: 1616
+j: 1755
+jj: 1687
+j: 1824
+jj: 1755
+j: 1892
+jj: 1824
+j: 1957
+jj: 1892
+j: 2022
+jj: 1957
+j: 2085
+jj: 2022
+j: 2145
+jj: 2085
+j: 2207
+jj: 2145
+j: 2269
+jj: 2207
+j: 2330
+jj: 2269
+j: 2390
+jj: 2330
+j: 2452
+jj: 2390
+j: 2513
+jj: 2452
+j: 2574
+jj: 2513
+j: 2630
+jj: 2574
+j: 2685
+jj: 2630
+j: 2740
+jj: 2685
+j: 2794
+jj: 2740
+j: 2846
+jj: 2794
+j: 2898
+jj: 2846
+j: 2950
+jj: 2898
+j: 3004
+jj: 2950
+j: 3057
+jj: 3004
+j: 3108
+jj: 3057
+j: 3161
+jj: 3108
+j: 3212
+jj: 3161
+j: 3262
+jj: 3212
+j: 3310
+jj: 3262
+j: 3357
+jj: 3310
+j: 3407
+jj: 3357
+j: 3455
+jj: 3407
+j: 3502
+jj: 3455
+j: 3545
+jj: 3502
+j: 3590
+jj: 3545
+j: 3634
+jj: 3590
+j: 3682
+jj: 3634
+j: 3727
+jj: 3682
+j: 3774
+jj: 3727
+j: 3820
+jj: 3774
+j: 3864
+jj: 3820
+j: 3908
+jj: 3864
+j: 3957
+jj: 3908
+j: 4002
+jj: 3957
+j: 4050
+jj: 4002
+j: 4098
+jj: 4050
+j: 4149
+jj: 4098
+j: 4196
+jj: 4149
+j: 4247
+jj: 4196
+j: 4297
+jj: 4247
+j: 4345
+jj: 4297
+j: 4392
+jj: 4345
+j: 4439
+jj: 4392
+j: 4490
+jj: 4439
+j: 4546
+jj: 4490
+j: 4599
+jj: 4546
+j: 4650
+jj: 4599
+j: 4702
+jj: 4650
+j: 4752
+jj: 4702
+j: 4807
+jj: 4752
+j: 4861
+jj: 4807
+j: 4917
+jj: 4861
+j: 4974
+jj: 4917
+j: 5027
+jj: 4974
+j: 5082
+jj: 5027
+j: 5135
+jj: 5082
+j: 5194
+jj: 5135
+j: 5247
+jj: 5194
+j: 5301
+jj: 5247
+j: 5348
+jj: 5301
+j: 5382
+jj: 5348
+j: 5388
+jj: 5382
+ kk 2 3 :   -- Solve :
+          min -6.6656e-09  max 3.96907e-09
+          min -4.06748e-32  max 16990.7
+ kk 2 3 :   -- Solve :
+          min -2.00726e-13  max 1.76767e-13
+          min -1.2707e-11  max 1.30804e-11
+ rrt1= 155
+ rrt2= 97
+jkk= 100
+ rrt3= 99
+times: compile 0.333s, execution 0.508s,  mpirank:0
+ ######## We forget of deleting   152079 Nb pointer,   0Bytes  ,  mpirank 0, memory leak =0
+ CodeAlloc : nb ptr  5646,  size :569592 mpirank: 0
+Ok: Normal End
+ try getConsole C:\Users\25821\Desktop\Yixin_Tan\Code\Project\test.edp

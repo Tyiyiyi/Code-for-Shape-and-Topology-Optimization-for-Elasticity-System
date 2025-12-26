@@ -1,0 +1,216 @@
+load "medit"
+load "Curvature"
+load "iovtk"
+load "msh3"
+load "Element_P3"
+
+////////////////////////////////////////////////////////////////////////////////////////////////
+// In this program, we calculate tyhe properties of the scaled beam
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+/* Beam related parameters */
+real L=1.0;
+real a=0.1;
+real E=2.0e11;
+real nu=0.3;
+
+/* force on the top boundary */
+real q1D=8.0e4;
+real q=q1D/(2*a*2*a);
+
+/* scale Beam parameters */
+real scaleE=1.0e5;
+real scaleU=1.0e2;
+real Ec=E/(scaleE*scaleU);
+real qc=q/scaleE;
+real lambdac=nu*Ec/((1+nu)*(1-2*nu));
+real muc=0.5*Ec/(1+nu);
+real l2mc=lambdac+2*muc;
+
+/* Build mesh: Labels: Dirichlet--1, Applied--2, Free--3, Free0--4 */
+int res1 = 25;
+int res2 = 5;
+border lwall(t=a,-a)  { x=0.0; y=t;  label=1; };
+border bwall(t=0.0,L){x=t;y=-a;label=4;};
+// border bwall(t=0.0,L) { x=t;   y=0.01*(sin(pi*2*t))-a; label=4; };
+border rwall(t=-a,a)  { x=L;   y=t;  label=3; };
+border upper(t=L,0.0) { x=t;   y=a;  label=2; };
+mesh Beam = buildmesh(lwall(res2)+bwall(res1)+rwall(res2)+upper(res1));
+plot(Beam,cmm="Original beam",wait=true);
+real deltax = L/(res1-1); // The mesh size on the bottom boundary
+real deltax2 = 2*a/(res2-1);
+
+verbosity = 2.;
+func zmin = 0.02*sin(2*pi*x)-2*a;
+// func zmin = -2*a;
+func zmax = 0.0;
+int MaxLayer = 5;
+int[int] rup = [0,6], rdown = [0,5];
+mesh3 Th=buildlayers(Beam,MaxLayer,zbound=[zmin,zmax], labelup = rup, labeldown = rdown); 
+plot(Th,wait=true);
+int[int] ll=labels(Th);
+cout<<"Labels: "<<ll<<endl;
+mesh3 Th1;
+
+/* Definite the finite element space */
+fespace Displacement(Th,P1);
+fespace Deriv(Th,P1);
+Displacement u1,v1,u1r,p1,p1r,g;
+Displacement u2,v2,u2r,p2,p2r;
+Displacement u3,v3,u3r,p3,p3r;
+Deriv g1,g2,g3,g1r,g2r,g3r,Divk,F,Fn;
+
+// int m,mm;
+// m=Displacement.ndof;  // Degrees of freedom in Vh space
+// mm=125;  // Numbers of vertices on Thl
+
+// real [int,int] C(mm,m); 
+// C=0;
+// real [int] jjd(mm),jj2(mm);
+// int kke = 0;
+// int te,te2;
+// int se;
+// int jg=0;
+// for (int kr = 0; kr < mm; kr++)
+// {
+//   if (Th.be(kr).label == 5 )
+//   {
+//     se = Th.be(kr)[0];
+//     jj2[kke]=se;
+//     jg=Th.be(kr)[1];
+//     jjd[kke]=jg;   
+//     kke=kke+1;   
+//   }
+// }
+// for (int iiv=0;iiv< kke;iiv++)  
+// {
+//   te=jjd[iiv];  
+//   te2 = jj2[iiv];
+//   C(iiv,te)=1;
+//   C(iiv,te2)=1;
+// }
+
+// ofstream output26("Matrix_C.txt");
+// output26<<" Matrix C "<<C<<endl;
+
+
+/* Some Macro */
+real sqrt2 = sqrt(2.);
+macro epsilon(u1, u2, u3) [
+            dx(u1), dy(u2), dz(u3),
+            (dz(u2) + dy(u3))/sqrt2,
+            (dz(u1) + dx(u3))/sqrt2,
+            (dy(u1) + dx(u2))/sqrt2] // EOM
+macro div(u1, u2, u3) (dx(u1) + dy(u2) + dz(u3)) //
+macro energy(u1,u2,u3,v1,v2,v3) ( lambdac*div(v1,v2,v3)*div(u1,u2,u3)
+                    +2.0*muc*(epsilon(v1,v2,v3)'*epsilon(u1,u2,u3)) ) //EOM
+
+
+/* The state problem */
+problem Elasticity(u1,u2,u3,v1,v2,v3,solver=sparsesolver)
+      = int3d(Th)(energy(u1,u2,u3,v1,v2,v3))
+       +int2d(Th,6)(qc*v3)
+       +on(1,u1=0,u2=0,u3=0);
+
+/* Compute the elasticity problem and plot([u1,u2]) */
+Elasticity;
+plot([u1,u2,u3],cmm="Displacement as vector field",wait=true);
+
+/* Deformed Beam */
+real step = 0.05;
+Th1 = movemesh(Th,[x+u1,y+u2,z+u3]);
+// Th1 = movemesh(Th,[x+step*u1,y+step*u2,z+step*u3]);
+plot(Th1,cmm="Deformed beam",wait=true);
+
+
+/* Definite adjoint equation */
+Deriv du,Frho,dFrho;
+du = energy(u1,u2,u3,u1,u2,u3); 
+real lambda0;
+lambda0 = du(0.5,0,-a);
+Frho = (du - lambda0)^2;
+dFrho = 2*(du-lambda0);
+problem Adjoint(p1,p2,p3,v1,v2,v3,solver=sparsesolver)
+    = int3d(Th) (energy(p1,p2,p3,v1,v2,v3))
+     +int2d(Th,5) (0.5*dFrho*energy(u1,u2,u3,v1,v2,v3))
+     +on(1,p1=0,p2=0,p3=0); 
+
+/* Compute the Adjoint problem and plot([p1,p2]) */
+Adjoint;
+plot([p1,p2,p3],cmm="The adjoint state as vector field",value=1,wait=true);
+
+/* Calculate the first part g1 */
+g1 = energy(u1,u2,u3,p1,p2,p3);
+
+/* Save the first part g1 to the file */
+{
+    ofstream file("g1.txt");
+    file << res1 <<endl;
+    for(int i=0;i<res1;i++){
+        for(int j=0;j<res2;j++){
+            file<<g1((i-1)*deltax,(j-1)*deltax2,-a)<<endl;
+        }
+    }
+}
+
+// calculate the normal vector of Gamma_v
+Deriv Nx,Ny,Nz;
+varf vqnuNormal1(Nx,unused) = on(5,Nx=N.x);//  to def the  interpolation all normal..
+varf vqnuNormal2(Ny,unused) = on(5,Ny=N.y);//  to def the  interpolation all normal..
+varf vqnuNormal3(Nz,unused) = on(5,Nz=N.z);//  to def the  interpolation all normal..
+Nx[]= vqnuNormal1(0,Deriv,tgv=1); // to get the normal value...
+Ny[]= vqnuNormal2(0,Deriv,tgv=1); // to get the normal value...
+Nz[]= vqnuNormal3(0,Deriv,tgv=1); // to get the normal value...
+plot([Nx,Ny,Nz],wait=true);
+
+/* Calculate the second part g2 */
+// g2 = dFrho*(dx(du)*Nx+dy(du)*Ny+dz(du)*Nz);
+
+
+// Fn = \partial F / \partial n
+// F=0.5*dFrho*dFrho;
+Fn=dz(Frho);
+
+/* Save the second part g2 to the file */
+{
+    ofstream file("Fn.txt");
+    file << res1 <<endl;
+    for(int i=0;i<res1;i++){
+        for(int j=0;j<res2;j++){
+            file<<Fn((i-1)*deltax,(j-1)*deltax2,-a)<<endl;
+        }
+    }
+}
+
+/* Calculate the third part g3 */
+g3 = (dx(Nx)+dy(Ny)+dz(Nz))*Frho;
+
+/* Save the third part g3 to the file */
+{
+    ofstream file("g3.txt");
+    file << res1 <<endl;
+    for(int i=0;i<res1;i++){
+        for(int j=0;j<res2;j++){
+            file<<g3((i-1)*deltax,(j-1)*deltax2,-a)<<endl;
+        }
+    }
+}
+
+// calculate the curvature of Gamma_v
+// Divk[]=curvature(Th,5);
+
+// Divk = dx(Nx);
+// cout<<"Divk = "<<Divk[]<<endl;
+// cout<<"Ny = "<<Ny[]<<endl;
+
+// /* Calculate the third part g3 */
+// g3 = Divk*Frho;
+// real[int] gg3(mm);
+// g3 = (dx(Nx)+dy(Ny)+dz(Nz))*Frho;
+// gg3 = C*g3[];
+// // cout<<"g3 = "<<g3[]<<endl;
+
+// ofstream output17("verctor_gg3.txt");
+// for (int i = 0; i < gg3.n; ++i) {
+//         output17 << gg3[i] << endl;
+//     }

@@ -1,0 +1,364 @@
+-- FreeFem++ v4.11 (Thu, Apr 07, 2022  2:25:37 PM - git v4.11)
+   file : C:\Users\25821\Desktop\Yixin_Tan\Code\Elasticity_3D\3d_elasticity.edp
+ Load: lg_fem lg_mesh lg_mesh3 eigenvalue
+    1 : load "medit"(load: loadLibary D:\”¶”√≥Ã–Ú\±‡≥Ã\Freefem\FreeFem++\FreeFem++\FreeFem++\\.\medit = 0)
+    2 : load "Curvature"(load: loadLibary D:\”¶”√≥Ã–Ú\±‡≥Ã\Freefem\FreeFem++\FreeFem++\FreeFem++\\.\Curvature = 0)
+    3 : load "iovtk"(load: loadLibary D:\”¶”√≥Ã–Ú\±‡≥Ã\Freefem\FreeFem++\FreeFem++\FreeFem++\\.\iovtk = 0) load: iovtk
+ 
+    4 : load "msh3"(load: loadLibary D:\”¶”√≥Ã–Ú\±‡≥Ã\Freefem\FreeFem++\FreeFem++\FreeFem++\\.\msh3 = 0)
+    5 : load "Element_P3"(load: loadLibary D:\”¶”√≥Ã–Ú\±‡≥Ã\Freefem\FreeFem++\FreeFem++\FreeFem++\\.\Element_P3 = 0)
+    6 :
+    7 : ////////////////////////////////////////////////////////////////////////////////////////////////
+    8 : // In this program, we calculate tyhe properties of the scaled beam
+    9 : ////////////////////////////////////////////////////////////////////////////////////////////////
+   10 :
+   11 : /* Beam related parameters */
+   12 : real L=1.0;
+   13 : real a=0.1;
+   14 : real E=2.0e11;
+   15 : real nu=0.3;
+   16 :
+   17 : /* force on the top boundary */
+   18 : real q1D=8.0e4;
+   19 : real q=q1D/(2*a*2*a);
+   20 :
+   21 : /* scale Beam parameters */
+   22 : real scaleE=1.0e5;
+   23 : real scaleU=1.0e2;
+   24 : real Ec=E/(scaleE*scaleU);
+   25 : real qc=q/scaleE;
+   26 : real lambdac=nu*Ec/((1+nu)*(1-2*nu));
+   27 : real muc=0.5*Ec/(1+nu);
+   28 : real l2mc=lambdac+2*muc;
+   29 :
+   30 : /* Build mesh: Labels: Dirichlet--1, Applied--2, Free--3, Free0--4 */
+   31 : int res1 = 25;
+   32 : int res2 = 5;
+   33 : border lwall(t=a,-a)  { x=0.0; y=t;  label=1; };
+   34 : border bwall(t=0.0,L){x=t;y=-a;label=4;};
+   35 : // border bwall(t=0.0,L) { x=t;   y=0.01*(sin(pi*2*t))-a; label=4; };
+   36 : border rwall(t=-a,a)  { x=L;   y=t;  label=3; };
+   37 : border upper(t=L,0.0) { x=t;   y=a;  label=2; };
+   38 : mesh Beam = buildmesh(lwall(res2)+bwall(res1)+rwall(res2)+upper(res1));
+   39 : plot(Beam,cmm="Original beam",wait=true);
+   40 : real deltax = L/(res1-1); // The mesh size on the bottom boundary
+   41 : real deltax2 = 2*a/(res2-1);
+   42 :
+   43 : verbosity = 2.;
+   44 : func zmin = 0.02*sin(2*pi*x)-2*a;
+   45 : // func zmin = -2*a;
+   46 : func zmax = 0.0;
+   47 : int MaxLayer = 5;
+   48 : int[int] rup = [0,6], rdown = [0,5];
+   49 : mesh3 Th=buildlayers(Beam,MaxLayer,zbound=[zmin,zmax], labelup = rup, labeldown = rdown);
+   50 : plot(Th,wait=true);
+   51 : int[int] ll=labels(Th);
+   52 : cout<<"Labels: "<<ll<<endl;
+   53 : mesh3 Th1;
+   54 :
+   55 : /* Definite the finite element space */
+   56 : fespace Displacement(Th,P1);
+   57 : fespace Deriv(Th,P1);
+   58 : Displacement u1,v1,u1r,p1,p1r,g;
+   59 : Displacement u2,v2,u2r,p2,p2r;
+   60 : Displacement u3,v3,u3r,p3,p3r;
+   61 : Deriv g1,g2,g3,g1r,g2r,g3r,Divk,F,Fn;
+   62 :
+   63 : // int m,mm;
+   64 : // m=Displacement.ndof;  // Degrees of freedom in Vh space
+   65 : // mm=125;  // Numbers of vertices on Thl
+   66 :
+   67 : // real [int,int] C(mm,m);
+   68 : // C=0;
+   69 : // real [int] jjd(mm),jj2(mm);
+   70 : // int kke = 0;
+   71 : // int te,te2;
+   72 : // int se;
+   73 : // int jg=0;
+   74 : // for (int kr = 0; kr < mm; kr++)
+   75 : // {
+   76 : //   if (Th.be(kr).label == 5 )
+   77 : //   {
+   78 : //     se = Th.be(kr)[0];
+   79 : //     jj2[kke]=se;
+   80 : //     jg=Th.be(kr)[1];
+   81 : //     jjd[kke]=jg;
+   82 : //     kke=kke+1;
+   83 : //   }
+   84 : // }
+   85 : // for (int iiv=0;iiv< kke;iiv++)
+   86 : // {
+   87 : //   te=jjd[iiv];
+   88 : //   te2 = jj2[iiv];
+   89 : //   C(iiv,te)=1;
+   90 : //   C(iiv,te2)=1;
+   91 : // }
+   92 :
+   93 : // ofstream output26("Matrix_C.txt");
+   94 : // output26<<" Matrix C "<<C<<endl;
+   95 :
+   96 :
+   97 : /* Some Macro */
+   98 : real sqrt2 = sqrt(2.);
+  103 #             (dy(u1) + dx(u2))/sqrt2]  )  // EOM
+  104 : macro div(u1, u2, u3) (dx(u1) + dy(u2) + dz(u3))  )  //
+  106 #                     +2.0*muc*(epsilon(v1,v2,v3)'*epsilon(u1,u2,u3)) )  )  //EOM
+  107 :
+  108 :
+  109 : /* The state problem */
+  110 : problem Elasticity(u1,u2,u3,v1,v2,v3,solver=sparsesolver)
+  111 :       = int3d(Th)(energy(u1,u2,u3,v1,v2,v3)
+  106 @                        ( lambdac*div(v1,v2,v3)       (dx(v1) + dy(v2) + dz(v3)) *div(u1,u2,u3)       (dx(u1) + dy(u2) + dz(u3))
+  106 @                     +2.0*muc*(epsilon(v1,v2,v3)
+  100 @
+  101 @
+  102 @
+  103 @                 [
+  100 @             dx(v1), dy(v2), dz(v3),
+  101 @             (dz(v2) + dy(v3))/sqrt2,
+  102 @             (dz(v1) + dx(v3))/sqrt2,
+  103 @             (dy(v1) + dx(v2))/sqrt2] '*epsilon(u1,u2,u3)
+  100 @
+  101 @
+  102 @
+  103 @                 [
+  100 @             dx(u1), dy(u2), dz(u3),
+  101 @             (dz(u2) + dy(u3))/sqrt2,
+  102 @             (dz(u1) + dx(u3))/sqrt2,
+  103 @             (dy(u1) + dx(u2))/sqrt2] ) ) )
+  112 :        +int2d(Th,6)(qc*v3)
+  113 :        +on(1,u1=0,u2=0,u3=0);
+  114 :
+  115 : /* Compute the elasticity problem and plot([u1,u2]) */
+  116 : Elasticity;
+  117 : plot([u1,u2,u3],cmm="Displacement as vector field",wait=true);
+  118 :
+  119 : /* Deformed Beam */
+  120 : real step = 0.05;
+  121 : Th1 = movemesh(Th,[x+u1,y+u2,z+u3]);
+  122 : // Th1 = movemesh(Th,[x+step*u1,y+step*u2,z+step*u3]);
+  123 : plot(Th1,cmm="Deformed beam",wait=true);
+  124 :
+  125 :
+  126 : /* Definite adjoint equation */
+  127 : Deriv du,Frho,dFrho;
+  128 : du = energy(u1,u2,u3,u1,u2,u3)
+  106 @                        ( lambdac*div(u1,u2,u3)       (dx(u1) + dy(u2) + dz(u3)) *div(u1,u2,u3)       (dx(u1) + dy(u2) + dz(u3))
+  106 @                     +2.0*muc*(epsilon(u1,u2,u3)
+  100 @
+  101 @
+  102 @
+  103 @                 [
+  100 @             dx(u1), dy(u2), dz(u3),
+  101 @             (dz(u2) + dy(u3))/sqrt2,
+  102 @             (dz(u1) + dx(u3))/sqrt2,
+  103 @             (dy(u1) + dx(u2))/sqrt2] '*epsilon(u1,u2,u3)
+  100 @
+  101 @
+  102 @
+  103 @                 [
+  100 @             dx(u1), dy(u2), dz(u3),
+  101 @             (dz(u2) + dy(u3))/sqrt2,
+  102 @             (dz(u1) + dx(u3))/sqrt2,
+  103 @             (dy(u1) + dx(u2))/sqrt2] ) ) ;
+  129 : real lambda0;
+  130 : lambda0 = du(0.5,0,-a);
+  131 : Frho = (du - lambda0)^2;
+  132 : dFrho = 2*(du-lambda0);
+  133 : problem Adjoint(p1,p2,p3,v1,v2,v3,solver=sparsesolver)
+  134 :     = int3d(Th) (energy(p1,p2,p3,v1,v2,v3)
+  106 @                        ( lambdac*div(v1,v2,v3)       (dx(v1) + dy(v2) + dz(v3)) *div(p1,p2,p3)       (dx(p1) + dy(p2) + dz(p3))
+  106 @                     +2.0*muc*(epsilon(v1,v2,v3)
+  100 @
+  101 @
+  102 @
+  103 @                 [
+  100 @             dx(v1), dy(v2), dz(v3),
+  101 @             (dz(v2) + dy(v3))/sqrt2,
+  102 @             (dz(v1) + dx(v3))/sqrt2,
+  103 @             (dy(v1) + dx(v2))/sqrt2] '*epsilon(p1,p2,p3)
+  100 @
+  101 @
+  102 @
+  103 @                 [
+  100 @             dx(p1), dy(p2), dz(p3),
+  101 @             (dz(p2) + dy(p3))/sqrt2,
+  102 @             (dz(p1) + dx(p3))/sqrt2,
+  103 @             (dy(p1) + dx(p2))/sqrt2] ) ) )
+  135 :      +int2d(Th,5) (0.5*dFrho*energy(u1,u2,u3,v1,v2,v3)
+  106 @                        ( lambdac*div(v1,v2,v3)       (dx(v1) + dy(v2) + dz(v3)) *div(u1,u2,u3)       (dx(u1) + dy(u2) + dz(u3))
+  106 @                     +2.0*muc*(epsilon(v1,v2,v3)
+  100 @
+  101 @
+  102 @
+  103 @                 [
+  100 @             dx(v1), dy(v2), dz(v3),
+  101 @             (dz(v2) + dy(v3))/sqrt2,
+  102 @             (dz(v1) + dx(v3))/sqrt2,
+  103 @             (dy(v1) + dx(v2))/sqrt2] '*epsilon(u1,u2,u3)
+  100 @
+  101 @
+  102 @
+  103 @                 [
+  100 @             dx(u1), dy(u2), dz(u3),
+  101 @             (dz(u2) + dy(u3))/sqrt2,
+  102 @             (dz(u1) + dx(u3))/sqrt2,
+  103 @             (dy(u1) + dx(u2))/sqrt2] ) ) )
+  136 :      +on(1,p1=0,p2=0,p3=0);
+  137 :
+  138 : /* Compute the Adjoint problem and plot([p1,p2]) */
+  139 : Adjoint;
+  140 : plot([p1,p2,p3],cmm="The adjoint state as vector field",value=1,wait=true);
+  141 :
+  142 : /* Calculate the first part g1 */
+  143 : g1 = energy(u1,u2,u3,p1,p2,p3)
+  106 @                        ( lambdac*div(p1,p2,p3)       (dx(p1) + dy(p2) + dz(p3)) *div(u1,u2,u3)       (dx(u1) + dy(u2) + dz(u3))
+  106 @                     +2.0*muc*(epsilon(p1,p2,p3)
+  100 @
+  101 @
+  102 @
+  103 @                 [
+  100 @             dx(p1), dy(p2), dz(p3),
+  101 @             (dz(p2) + dy(p3))/sqrt2,
+  102 @             (dz(p1) + dx(p3))/sqrt2,
+  103 @             (dy(p1) + dx(p2))/sqrt2] '*epsilon(u1,u2,u3)
+  100 @
+  101 @
+  102 @
+  103 @                 [
+  100 @             dx(u1), dy(u2), dz(u3),
+  101 @             (dz(u2) + dy(u3))/sqrt2,
+  102 @             (dz(u1) + dx(u3))/sqrt2,
+  103 @             (dy(u1) + dx(u2))/sqrt2] ) ) ;
+  144 :
+  145 : /* Save the first part g1 to the file */
+  146 : {
+  147 :     ofstream file("g1.txt");
+  148 :     file << res1 <<endl;
+  149 :     for(int i=0;i<res1;i++){
+  150 :         for(int j=0;j<res2;j++){
+  151 :             file<<g1((i-1)*deltax,(j-1)*deltax2,-a)<<endl;
+  152 :         }
+  153 :     }
+  154 : }
+  155 :
+  156 : // calculate the normal vector of Gamma_v
+  157 : Deriv Nx,Ny,Nz;
+  158 : varf vqnuNormal1(Nx,unused) = on(5,Nx=N.x);//  to def the  interpolation all normal..
+  159 : varf vqnuNormal2(Ny,unused) = on(5,Ny=N.y);//  to def the  interpolation all normal..
+  160 : varf vqnuNormal3(Nz,unused) = on(5,Nz=N.z);//  to def the  interpolation all normal..
+  161 : Nx[]= vqnuNormal1(0,Deriv,tgv=1); // to get the normal value...
+  162 : Ny[]= vqnuNormal2(0,Deriv,tgv=1); // to get the normal value...
+  163 : Nz[]= vqnuNormal3(0,Deriv,tgv=1); // to get the normal value...
+  164 : plot([Nx,Ny,Nz],wait=true);
+  165 :
+  166 : /* Calculate the second part g2 */
+  167 : // g2 = dFrho*(dx(du)*Nx+dy(du)*Ny+dz(du)*Nz);
+  168 :
+  169 :
+  170 : // Fn = \partial F / \partial n
+  171 : // F=0.5*dFrho*dFrho;
+  172 : Fn=dz(Frho);
+  173 :
+  174 : /* Save the second part g2 to the file */
+  175 : {
+  176 :     ofstream file("Fn.txt");
+  177 :     file << res1 <<endl;
+  178 :     for(int i=0;i<res1;i++){
+  179 :         for(int j=0;j<res2;j++){
+  180 :             file<<Fn((i-1)*deltax,(j-1)*deltax2,-a)<<endl;
+  181 :         }
+  182 :     }
+  183 : }
+  184 :
+  185 : /* Calculate the third part g3 */
+  186 : g3 = (dx(Nx)+dy(Ny)+dz(Nz))*Frho;
+  187 :
+  188 : /* Save the third part g3 to the file */
+  189 : {
+  190 :     ofstream file("g3.txt");
+  191 :     file << res1 <<endl;
+  192 :     for(int i=0;i<res1;i++){
+  193 :         for(int j=0;j<res2;j++){
+  194 :             file<<g3((i-1)*deltax,(j-1)*deltax2,-a)<<endl;
+  195 :         }
+  196 :     }
+  197 : }
+  198 :
+  199 : // calculate the curvature of Gamma_v
+  200 : // Divk[]=curvature(Th,5);
+  201 :
+  202 : // Divk = dx(Nx);
+  203 : // cout<<"Divk = "<<Divk[]<<endl;
+  204 : // cout<<"Ny = "<<Ny[]<<endl;
+  205 :
+  206 : // /* Calculate the third part g3 */
+  207 : // g3 = Divk*Frho;
+  208 : // real[int] gg3(mm);
+  209 : // g3 = (dx(Nx)+dy(Ny)+dz(Nz))*Frho;
+  210 : // gg3 = C*g3[];
+  211 : // // cout<<"g3 = "<<g3[]<<endl;
+  212 :
+  213 : // ofstream output17("verctor_gg3.txt");
+  214 : // for (int i = 0; i < gg3.n; ++i) {
+  215 : //         output17 << gg3[i] << endl;
+  216 : //     }ˇ sizestack + 1024 =21356  ( 20332 )                                                                    
+  --  mesh:  Nb of Triangles =    264, Nb of Vertices 163
+lecture valeur des references
+MajSom = 978  MajElem = 3960 MajBord2D =1128
+debut :   Th3.set(MajSom, MajElem, MajBord2D);
+debut :   Som3D_mesh_product_Version_Sommet_mesh_tab( Nmax, tab_Ni, tab_zmin, tab_zmax, Th2, Th3);
+calcul element du bord
+calcul element tetraedre
+  -- BuildAdj:0x1b9acf854d0 nb Elememt 3960 nb vertices 978
+             : nb adj  = 8484 on border 1128 nea = 4 nva = 3 nb no manifold border 0
+ 
+Plot bound [x,y] 0 0 max [x,y] 0 0
+  Plot::  Sorry no ps version for this type of plot 5
+Labels: 6
+          1       2       3       4       5
+          6
+  -- FESpace: Nb of Nodes 978 Nb of DoF 978
+  -- FESpace: Nb of Nodes 978 Nb of DoF 978
+   -- Change of Mesh 0  0x1b9acf854d0
+   -- size of Matrix 0 Bytes
+  -- Solve :
+          min -0.0321484  max 0.024586
+          min -0.0016186  max 0.00219778
+          min -0.200929  max 1.92938e-31
+Plot bound [x,y] 0 0 max [x,y] 0 0
+  Plot::  Sorry no ps version for this type of plot 7
+ determination of bmin and bmax
+ bmin := -1.36315e-30 -0.101524 -0.400823
+ bmax := 1.02459 0.102198 -2.26779e-31
+ box volume :=1.1189
+ eps size edges 1.1189e-07
+  -- BuildAdj:0x1b9acf85350 nb Elememt 3960 nb vertices 978
+             : nb adj  = 8484 on border 1128 nea = 4 nva = 3 nb no manifold border 0
+ 
+  -- End of read: mesure = 0.0418174 border mesure 0.909225
+Plot bound [x,y] 0 0 max [x,y] 0 0
+  Plot::  Sorry no ps version for this type of plot 5
+  -- vector function's bound  0.000111695 104.153 0/0 =  0
+  -- vector function's bound  5.33437e-05 10483.9 0/0 =  0
+  -- vector function's bound  -3.52367 204.782 0/0 =  0
+   -- Change of Mesh 0  0x1b9acf854d0
+   -- size of Matrix 0 Bytes
+  -- Solve :
+          min -8.24425  max 21.6951
+          min -4.40637  max 1.41477
+          min -0.0459606  max 111.769
+Plot bound [x,y] 0 0 max [x,y] 0 0
+  Plot::  Sorry no ps version for this type of plot 7
+  -- vector function's bound  -124029 2074.69 0/0 =  0
+Plot bound [x,y] 0 0 max [x,y] 0 0
+  Plot::  Sorry no ps version for this type of plot 7
+  -- vector function's bound  -132909 242071 0/0 =  0
+  -- vector function's bound  0 155097 0/0 =  0
+ 
+ -- ~GenericDataFindBoundary: Nb find 174 nb element  3018 ratio 17.3448 mpirank 0
+times: compile 0.504s, execution 3.21s,  mpirank:0
+ ######## We forget of deleting   24741 Nb pointer,   0Bytes  ,  mpirank 0, memory leak =0
+ CodeAlloc : nb ptr  5209,  size :579600 mpirank: 0
+Ok: Normal End
+ try getConsole C:\Users\25821\Desktop\Yixin_Tan\Code\Elasticity_3D\3d_elasticity.edp
